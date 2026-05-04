@@ -1,12 +1,19 @@
 # Synchronize
 
 git config --global merge.ours.driver true
+
 git remote add upstream https://github.com/sandboxie-plus/Sandboxie.git
+
 git remote
+
 git fetch upstream
+
 git checkout master
+
 git merge upstream/master
+
 git push origin master
+
 
 # Sandboxie Plus / Classic
 
