@@ -101,9 +101,10 @@ env:
   # LowLevel.vcxproj fails with /GL because compiler predefined library helpers
   # such as memcpy are not supported in that low-level object.
   FAST_CODE_MSBUILD_FLAGS: /p:Optimization=MaxSpeed /p:InlineFunctionExpansion=AnySuitable /p:IntrinsicFunctions=true /p:FavorSizeOrSpeed=Speed /p:FunctionLevelLinking=true /p:OptimizeReferences=true /p:EnableCOMDATFolding=true
-  # qmake/nmake/jom builds use cl.exe/link.exe directly, so pass equivalent safe flags.
+  # qmake/nmake/jom builds use cl.exe/link.exe directly.
+  # Use _CL_ so these options are appended after project/qmake options; this lets /Ot override any existing /Os.
   # Keep /O2-class speed flags, but do not force /GL or /LTCG globally.
-  CL: /O2 /Ob2 /Oi /Ot /Gy
+  _CL_: /O2 /Ob2 /Oi /Ot /Gy
   LINK: /OPT:REF /OPT:ICF
   NUGET_XMLDOC_MODE: skip
   # Use Installer\buildVariables.cmd as the source of version variables.
@@ -127,6 +128,42 @@ jobs:
           call "%GITHUB_WORKSPACE%\Installer\buildVariables.cmd" build_qt6
           echo qt6_version=%qt6_version%>>%GITHUB_ENV%
           echo qt_version=%qt6_version%>>%GITHUB_ENV%
+
+
+      - name: Force MSVC favor-speed settings
+        shell: pwsh
+        run: |
+          $targets = @'
+          <Project>
+            <ItemDefinitionGroup>
+              <ClCompile>
+                <Optimization>MaxSpeed</Optimization>
+                <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+                <IntrinsicFunctions>true</IntrinsicFunctions>
+                <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+                <FunctionLevelLinking>true</FunctionLevelLinking>
+              </ClCompile>
+              <Link>
+                <OptimizeReferences>true</OptimizeReferences>
+                <EnableCOMDATFolding>true</EnableCOMDATFolding>
+              </Link>
+            </ItemDefinitionGroup>
+          </Project>
+          '@
+          Set-Content -Path Directory.Build.targets -Value $targets -Encoding UTF8
+
+          $files = Get-ChildItem -Recurse -Filter *.vcxproj
+          foreach ($file in $files) {
+            $text = Get-Content $file.FullName -Raw
+            $new = $text `
+              -replace '<Optimization>MinSpace</Optimization>', '<Optimization>MaxSpeed</Optimization>' `
+              -replace '<FavorSizeOrSpeed>Size</FavorSizeOrSpeed>', '<FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>' `
+              -replace '/Os', '/Ot'
+            if ($new -ne $text) {
+              Set-Content -Path $file.FullName -Value $new -Encoding UTF8
+              Write-Host "Forced speed optimization in $($file.FullName)"
+            }
+          }
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v3
@@ -218,6 +255,42 @@ jobs:
           call "%GITHUB_WORKSPACE%\Installer\buildVariables.cmd" build_qt6
           echo qt6_version=%qt6_version%>>%GITHUB_ENV%
           echo qt_version=%qt6_version%>>%GITHUB_ENV%
+
+
+      - name: Force MSVC favor-speed settings
+        shell: pwsh
+        run: |
+          $targets = @'
+          <Project>
+            <ItemDefinitionGroup>
+              <ClCompile>
+                <Optimization>MaxSpeed</Optimization>
+                <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+                <IntrinsicFunctions>true</IntrinsicFunctions>
+                <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+                <FunctionLevelLinking>true</FunctionLevelLinking>
+              </ClCompile>
+              <Link>
+                <OptimizeReferences>true</OptimizeReferences>
+                <EnableCOMDATFolding>true</EnableCOMDATFolding>
+              </Link>
+            </ItemDefinitionGroup>
+          </Project>
+          '@
+          Set-Content -Path Directory.Build.targets -Value $targets -Encoding UTF8
+
+          $files = Get-ChildItem -Recurse -Filter *.vcxproj
+          foreach ($file in $files) {
+            $text = Get-Content $file.FullName -Raw
+            $new = $text `
+              -replace '<Optimization>MinSpace</Optimization>', '<Optimization>MaxSpeed</Optimization>' `
+              -replace '<FavorSizeOrSpeed>Size</FavorSizeOrSpeed>', '<FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>' `
+              -replace '/Os', '/Ot'
+            if ($new -ne $text) {
+              Set-Content -Path $file.FullName -Value $new -Encoding UTF8
+              Write-Host "Forced speed optimization in $($file.FullName)"
+            }
+          }
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v3
