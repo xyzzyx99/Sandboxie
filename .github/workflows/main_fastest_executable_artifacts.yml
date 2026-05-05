@@ -1,0 +1,279 @@
+name: Fast executable build
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Build target"
+        type: choice
+        required: true
+        default: x64
+        options:
+          - x64
+          - arm64
+          - all
+      upload_artifacts:
+        description: "Upload build artifacts"
+        type: boolean
+        required: true
+        default: true
+
+  push:
+    branches: [master, experimental]
+    paths-ignore:
+      - '.editorconfig'
+      - '.gitattributes'
+      - '.gitignore'
+      - 'MergeDbg.cmd'
+      - 'TestCI.cmd'
+      - '.github/codeql/codeql-config.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/codeql.yml'
+      - '.github/workflows/codespell.yml'
+      - '.github/workflows/hash.yml'
+      - '.github/workflows/lupdate.yml'
+      - '.github/workflows/stale.yml'
+      - '.github/workflows/test.yml'
+      - '.github/workflows/update_copyright.yml'
+      - '.github/workflows/winget.yml'
+      - '.github/FUNDING.yml'
+      - '.github/dependabot.yml'
+      - 'Sandboxie/msgs/report/*.txt'
+      - '**/*.md'
+      - '**/*.html'
+      - '**/*.png'
+      - '**/*.bmp'
+      - '**/LICENSE*'
+      - '**/license*'
+      - '**/README*'
+      - '**/ReadMe*'
+      - '**/INSTALL*'
+      - '**/AUTHORS'
+      - '**/COPYING'
+
+  pull_request:
+    branches: [master, experimental]
+    paths-ignore:
+      - '.editorconfig'
+      - '.gitattributes'
+      - '.gitignore'
+      - 'MergeDbg.cmd'
+      - 'TestCI.cmd'
+      - '.github/codeql/codeql-config.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/codeql.yml'
+      - '.github/workflows/codespell.yml'
+      - '.github/workflows/hash.yml'
+      - '.github/workflows/lupdate.yml'
+      - '.github/workflows/stale.yml'
+      - '.github/workflows/test.yml'
+      - '.github/workflows/update_copyright.yml'
+      - '.github/workflows/winget.yml'
+      - '.github/FUNDING.yml'
+      - '.github/dependabot.yml'
+      - 'Sandboxie/msgs/report/*.txt'
+      - '**/*.md'
+      - '**/*.html'
+      - '**/*.png'
+      - '**/*.bmp'
+      - '**/LICENSE*'
+      - '**/license*'
+      - '**/README*'
+      - '**/ReadMe*'
+      - '**/INSTALL*'
+      - '**/AUTHORS'
+      - '**/COPYING'
+
+concurrency:
+  group: fast-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: cmd
+
+env:
+  MSBUILD_FLAGS: /m /nr:false /p:BuildInParallel=true /p:UseMultiToolTask=true /p:EnforceProcessCountAcrossBuilds=true /verbosity:minimal
+  # MSVC optimization profile for fastest generated code.
+  # These properties are understood by VC++ .vcxproj projects; unsupported projects ignore them.
+  FAST_CODE_MSBUILD_FLAGS: /p:Optimization=MaxSpeed /p:InlineFunctionExpansion=AnySuitable /p:IntrinsicFunctions=true /p:FavorSizeOrSpeed=Speed /p:WholeProgramOptimization=true /p:FunctionLevelLinking=true /p:LinkTimeCodeGeneration=UseLinkTimeCodeGeneration /p:OptimizeReferences=true /p:EnableCOMDATFolding=true
+  # qmake/nmake/jom builds use cl.exe/link.exe directly, so pass equivalent flags through CL/LINK.
+  # /GL + /LTCG enables whole-program optimization; /OPT:REF and /OPT:ICF remove/fold unused duplicate code.
+  CL: /O2 /Ob2 /Oi /Ot /GL /Gy
+  LINK: /LTCG /OPT:REF /OPT:ICF
+  NUGET_XMLDOC_MODE: skip
+  # Use Installer\buildVariables.cmd as the source of version variables.
+
+jobs:
+  build_x64_qt6:
+    name: Build x64 Qt6
+    runs-on: windows-2022
+    timeout-minutes: 35
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'x64' || inputs.target == 'all'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Load build variables
+        run: |
+          call "%GITHUB_WORKSPACE%\Installer\buildVariables.cmd" build_qt6
+          echo qt6_version=%qt6_version%>>%GITHUB_ENV%
+          echo qt_version=%qt6_version%>>%GITHUB_ENV%
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.nuget\packages
+            SandboxiePlus\packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.config', '**/*.csproj', '**/*.sln') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Build Sandboxie x86 DLLs and service
+        run: msbuild Sandboxie\SandboxDll.sln /t:Build /p:Configuration=SbieRelease /p:Platform=Win32 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Build Sandboxie x64
+        run: msbuild Sandboxie\Sandbox.sln /t:Build /p:Configuration=SbieRelease /p:Platform=x64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Build Sandboxie x64 driver
+        run: msbuild Sandboxie\SandboxDrv.sln /t:Build /p:Configuration=SbieRelease /p:Platform=x64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Install Qt6 x64
+        run: SandboxiePlus\install_qt.cmd x64
+
+      - name: Install Jom
+        run: SandboxiePlus\install_jom.cmd
+
+      - name: Build Sandboxie-Plus x64
+        run: SandboxiePlus\qmake_plus.cmd x64 build_qt6
+
+      - name: Build SbieShell x64
+        run: msbuild SandboxiePlus\SbieShell\SbieShell.sln /t:Restore,Build /p:RestorePackagesConfig=true /p:Configuration=Release /p:Platform=x64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Build Sandboxie tools x64
+        run: msbuild SandboxieTools\SandboxieTools.sln /t:Build /p:Configuration=Release /p:Platform=x64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Finish x64 package tree
+        run: |
+          Installer\fix_qt5_languages.cmd x64 build_qt6
+          Installer\get_openssl.cmd
+          Installer\get_7zip.cmd
+          Installer\copy_build.cmd x64 build_qt6
+
+      - name: Collect installer assets
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
+        run: Installer\get_assets.cmd
+
+      - name: Upload installer assets
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Assets
+          path: Installer/Assets/*
+          retention-days: 14
+
+      - name: Upload Sandboxie x64
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Sandboxie_x64
+          path: Installer/SbiePlus_x64/*
+          retention-days: 14
+
+  build_arm64_qt6:
+    name: Build ARM64 Qt6
+    runs-on: windows-2022
+    timeout-minutes: 40
+    if: github.event_name != 'workflow_dispatch' && github.event_name != 'pull_request' || github.event_name == 'workflow_dispatch' && (inputs.target == 'arm64' || inputs.target == 'all')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Load build variables
+        run: |
+          call "%GITHUB_WORKSPACE%\Installer\buildVariables.cmd" build_qt6
+          echo qt6_version=%qt6_version%>>%GITHUB_ENV%
+          echo qt_version=%qt6_version%>>%GITHUB_ENV%
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.nuget\packages
+            SandboxiePlus\packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.config', '**/*.csproj', '**/*.sln') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Build Sandboxie x86 DLLs and service
+        run: msbuild Sandboxie\SandboxDll.sln /t:Build /p:Configuration=SbieRelease /p:Platform=Win32 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Build Sandboxie ARM64
+        run: msbuild Sandboxie\Sandbox.sln /t:Build /p:Configuration=SbieRelease /p:Platform=ARM64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Build Sandboxie ARM64EC DLL
+        run: msbuild Sandboxie\SandboxDll.sln /t:Build /p:Configuration=SbieRelease /p:Platform=ARM64EC %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Build Sandboxie ARM64 driver
+        run: msbuild Sandboxie\SandboxDrv.sln /t:Build /p:Configuration=SbieRelease /p:Platform=ARM64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Install Qt6 x64 host tools
+        uses: jurplel/install-qt-action@v4.3.0
+        with:
+          version: '${{ env.qt6_version }}'
+          arch: win64_msvc2022_64
+          tools: tools_opensslv3_x64
+          cache: true
+
+      - name: Install Qt6 ARM64
+        uses: jurplel/install-qt-action@v4.3.0
+        with:
+          version: '${{ env.qt6_version }}'
+          arch: win64_msvc2022_arm64_cross_compiled
+          tools: tools_opensslv3_x64
+          cache: true
+
+      - name: Install Jom
+        run: SandboxiePlus\install_jom.cmd
+
+      - name: Build Sandboxie-Plus ARM64
+        run: SandboxiePlus\qmake_plus.cmd ARM64 build_qt6
+
+      - name: Build SbieShell ARM64
+        run: msbuild SandboxiePlus\SbieShell\SbieShell.sln /t:Restore,Build /p:RestorePackagesConfig=true /p:Configuration=Release /p:Platform=ARM64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Build Sandboxie tools ARM64
+        run: msbuild SandboxieTools\SandboxieTools.sln /t:Build /p:Configuration=Release /p:Platform=ARM64 %MSBUILD_FLAGS% %FAST_CODE_MSBUILD_FLAGS%
+
+      - name: Finish ARM64 package tree
+        run: |
+          Installer\fix_qt5_languages.cmd x64 build_qt6
+          Installer\get_openssl.cmd
+          Installer\get_7zip.cmd
+          Installer\copy_build.cmd ARM64 build_qt6
+
+      - name: Upload Sandboxie ARM64
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Sandboxie_ARM64
+          path: Installer/SbiePlus_a64/*
+          retention-days: 14
