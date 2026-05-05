@@ -1,4 +1,4 @@
-name: Fast executable build
+name: Fast executable build artifacts
 
 on:
   workflow_dispatch:
@@ -97,13 +97,14 @@ defaults:
 
 env:
   MSBUILD_FLAGS: /m /nr:false /p:BuildInParallel=true /p:UseMultiToolTask=true /p:EnforceProcessCountAcrossBuilds=true /verbosity:minimal
-  # MSVC optimization profile for fastest generated code.
-  # These properties are understood by VC++ .vcxproj projects; unsupported projects ignore them.
-  FAST_CODE_MSBUILD_FLAGS: /p:Optimization=MaxSpeed /p:InlineFunctionExpansion=AnySuitable /p:IntrinsicFunctions=true /p:FavorSizeOrSpeed=Speed /p:WholeProgramOptimization=true /p:FunctionLevelLinking=true /p:LinkTimeCodeGeneration=UseLinkTimeCodeGeneration /p:OptimizeReferences=true /p:EnableCOMDATFolding=true
-  # qmake/nmake/jom builds use cl.exe/link.exe directly, so pass equivalent flags through CL/LINK.
-  # /GL + /LTCG enables whole-program optimization; /OPT:REF and /OPT:ICF remove/fold unused duplicate code.
-  CL: /O2 /Ob2 /Oi /Ot /GL /Gy
-  LINK: /LTCG /OPT:REF /OPT:ICF
+  # MSVC speed optimization profile that avoids global /GL and /LTCG.
+  # LowLevel.vcxproj fails with /GL because compiler predefined library helpers
+  # such as memcpy are not supported in that low-level object.
+  FAST_CODE_MSBUILD_FLAGS: /p:Optimization=MaxSpeed /p:InlineFunctionExpansion=AnySuitable /p:IntrinsicFunctions=true /p:FavorSizeOrSpeed=Speed /p:FunctionLevelLinking=true /p:OptimizeReferences=true /p:EnableCOMDATFolding=true
+  # qmake/nmake/jom builds use cl.exe/link.exe directly, so pass equivalent safe flags.
+  # Keep /O2-class speed flags, but do not force /GL or /LTCG globally.
+  CL: /O2 /Ob2 /Oi /Ot /Gy
+  LINK: /OPT:REF /OPT:ICF
   NUGET_XMLDOC_MODE: skip
   # Use Installer\buildVariables.cmd as the source of version variables.
 
