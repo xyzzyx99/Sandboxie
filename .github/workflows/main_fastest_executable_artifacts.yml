@@ -167,21 +167,28 @@ jobs:
 
       - name: Finish x64 package tree
         run: |
-          Installer\fix_qt5_languages.cmd x64 build_qt6
-          Installer\get_openssl.cmd
-          Installer\get_7zip.cmd
-          Installer\copy_build.cmd x64 build_qt6
+          call Installer\fix_qt5_languages.cmd x64 build_qt6
+          call Installer\get_openssl.cmd
+          call Installer\get_7zip.cmd
+          call Installer\copy_build.cmd x64 build_qt6
+
+      - name: Show x64 artifact tree
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
+        run: |
+          if exist Installer\SbiePlus_x64 (dir /s /b Installer\SbiePlus_x64) else (echo Installer\SbiePlus_x64 does not exist)
+          if exist Installer\Assets (dir /s /b Installer\Assets) else (echo Installer\Assets does not exist)
 
       - name: Collect installer assets
         if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
-        run: Installer\get_assets.cmd
+        run: call Installer\get_assets.cmd
 
       - name: Upload installer assets
         if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
         uses: actions/upload-artifact@v7.0.1
         with:
           name: Assets
-          path: Installer/Assets/*
+          path: Installer/Assets/**
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Upload Sandboxie x64
@@ -189,7 +196,8 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: Sandboxie_x64
-          path: Installer/SbiePlus_x64/*
+          path: Installer/SbiePlus_x64/**
+          if-no-files-found: error
           retention-days: 14
 
   build_arm64_qt6:
@@ -266,15 +274,21 @@ jobs:
 
       - name: Finish ARM64 package tree
         run: |
-          Installer\fix_qt5_languages.cmd x64 build_qt6
-          Installer\get_openssl.cmd
-          Installer\get_7zip.cmd
-          Installer\copy_build.cmd ARM64 build_qt6
+          call Installer\fix_qt5_languages.cmd x64 build_qt6
+          call Installer\get_openssl.cmd
+          call Installer\get_7zip.cmd
+          call Installer\copy_build.cmd ARM64 build_qt6
+
+      - name: Show ARM64 artifact tree
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
+        run: |
+          if exist Installer\SbiePlus_a64 (dir /s /b Installer\SbiePlus_a64) else (echo Installer\SbiePlus_a64 does not exist)
 
       - name: Upload Sandboxie ARM64
         if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts)
         uses: actions/upload-artifact@v7.0.1
         with:
           name: Sandboxie_ARM64
-          path: Installer/SbiePlus_a64/*
+          path: Installer/SbiePlus_a64/**
+          if-no-files-found: error
           retention-days: 14
